@@ -29,8 +29,11 @@ phases:
       - docker push $WEB_REPO:$IMAGE_TAG
       - docker push $WORKER_REPO:latest
       - docker push $WORKER_REPO:$IMAGE_TAG
-      - echo Writing image definitions file...
-      - printf '[{"name":"web","imageUri":"%s"},{"name":"worker","imageUri":"%s"}]' "$WEB_REPO:$IMAGE_TAG" "$WORKER_REPO:$IMAGE_TAG" > imagedefinitions.json
+      - echo Writing image definitions file for Web...
+      - printf '[{"name":"web","imageUri":"%s"}]' "$WEB_REPO:$IMAGE_TAG" > imagedefinitions-web.json
+      - echo Writing image definitions file for Worker...
+      - printf '[{"name":"worker","imageUri":"%s"}]' "$WORKER_REPO:$IMAGE_TAG" > imagedefinitions-worker.json
 artifacts:
   files:
-    - imagedefinitions.json
+    - imagedefinitions-web.json
+    - imagedefinitions-worker.json
