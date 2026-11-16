@@ -9,25 +9,27 @@ env:
 phases:
   pre_build:
     commands:
-      - echo Logging in to ECR...
+      - echo Logging in to Amazon ECR...
       - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin 325657596892.dkr.ecr.$AWS_REGION.amazonaws.com
       - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
-      - IMAGE_TAG=${COMMIT_HASH:=latest}
-      - echo "Image tag: $IMAGE_TAG"
+      - IMAGE_TAG=${COMMIT_HASH:-latest}
+      - echo "Image tag is $IMAGE_TAG"
   build:
     commands:
-      - echo Building web image...
+      - echo Build started on `date`
+      - echo Building the Docker image for Web...
       - docker build -t $WEB_REPO:latest -t $WEB_REPO:$IMAGE_TAG ./app/web
-      - echo Building worker image...
+      - echo Building the Docker image for Worker...
       - docker build -t $WORKER_REPO:latest -t $WORKER_REPO:$IMAGE_TAG ./app/worker
   post_build:
     commands:
-      - echo Pushing images...
+      - echo Build completed on `date`
+      - echo Pushing the Docker images...
       - docker push $WEB_REPO:latest
       - docker push $WEB_REPO:$IMAGE_TAG
       - docker push $WORKER_REPO:latest
       - docker push $WORKER_REPO:$IMAGE_TAG
-      - echo Writing imagedefinitions.json for ECS deploy...
+      - echo Writing image definitions file...
       - printf '[{"name":"web","imageUri":"%s"},{"name":"worker","imageUri":"%s"}]' "$WEB_REPO:$IMAGE_TAG" "$WORKER_REPO:$IMAGE_TAG" > imagedefinitions.json
 artifacts:
   files:
