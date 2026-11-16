@@ -123,7 +123,7 @@ Resources:
                 - Name: BuildOutput
         - Name: Deploy
           Actions:
-            - Name: DeployAction
+            - Name: DeployWeb
               ActionTypeId:
                 Category: Deploy
                 Owner: AWS
@@ -135,3 +135,17 @@ Resources:
                 FileName: imagedefinitions.json
               InputArtifacts:
                 - Name: BuildOutput
+              RunOrder: 1
+            - Name: DeployWorker
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: ECS
+                Version: "1"
+              Configuration:
+                ClusterName: !Sub "${ProjectName}-cluster"
+                ServiceName: !Sub "${ProjectName}-worker-service"
+                FileName: imagedefinitions.json
+              InputArtifacts:
+                - Name: BuildOutput
+              RunOrder: 2
