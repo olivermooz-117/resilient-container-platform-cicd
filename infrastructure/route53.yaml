@@ -1,0 +1,82 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Route 53 Failover and S3 Error Page for DR
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: ecommerce
+  DomainName:
+    Type: String
+    Default: oliver-capstone.work.gd
+  HostedZoneId:
+    Type: String
+    Description: The Route 53 Hosted Zone ID for your domain
+
+Resources:
+  # 1. S3 Bucket for the Failover Static Page
+  FailoverBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "olivermooz-capstone-failover" # Must be globally unique
+      WebsiteConfiguration:
+        IndexDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+
+  FailoverBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FailoverBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "arn:aws:s3:::${FailoverBucket}/*"
+
+  # 2. Route 53 Health Check pointing to the ALB
+  AlbHealthCheck:
+    Type: AWS::Route53::HealthCheck
+    Properties:
+      HealthCheckConfig:
+        Type: HTTP
+        ResourcePath: /health
+        FullyQualifiedDomainName: 
+          Fn::ImportValue: !Sub "${ProjectName}-AlbDnsName"
+        RequestInterval: 30
+        FailureThreshold: 3
+
+  # 3. Primary Record (ALB) - us-east-2 ALB Hosted Zone ID is Z3AADJGX6KTTL2
+  PrimaryRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: 
+          Fn::ImportValue: !Sub "${ProjectName}-AlbDnsName"
+        HostedZoneId: Z3AADJGX6KTTL2
+        EvaluateTargetHealth: true
+      Failover: PRIMARY
+      SetIdentifier: Primary-ALB
+      HealthCheckId: !Ref AlbHealthCheck
+
+  # 4. Secondary Record (S3 Error Page)
+  SecondaryRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: s3-website.us-east-2.amazonaws.com
+        HostedZoneId: Z2O1EMRO9K5GLX
+        EvaluateTargetHealth: false
+      Failover: SECONDARY
+      SetIdentifier: Secondary-S3
