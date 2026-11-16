@@ -132,7 +132,7 @@ Resources:
               Configuration:
                 ClusterName: !Sub "${ProjectName}-cluster"
                 ServiceName: !Sub "${ProjectName}-web-service"
-                FileName: imagedefinitions.json
+                FileName: imagedefinitions-web.json
               InputArtifacts:
                 - Name: BuildOutput
               RunOrder: 1
@@ -145,7 +145,7 @@ Resources:
               Configuration:
                 ClusterName: !Sub "${ProjectName}-cluster"
                 ServiceName: !Sub "${ProjectName}-worker-service"
-                FileName: imagedefinitions.json
+                FileName: imagedefinitions-worker.json
               InputArtifacts:
                 - Name: BuildOutput
               RunOrder: 2
