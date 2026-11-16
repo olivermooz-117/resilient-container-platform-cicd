@@ -1,0 +1,291 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ECS Fargate cluster with web + worker services and auto-scaling
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: ecommerce
+  WebImageUri:
+    Type: String
+    Default: 325657596892.dkr.ecr.us-east-2.amazonaws.com/ecommerce-web:latest
+  WorkerImageUri:
+    Type: String
+    Default: 325657596892.dkr.ecr.us-east-2.amazonaws.com/ecommerce-worker:latest
+  DBEndpoint:
+    Type: String
+    Default: ecommerce-db.cd8uq8euwl2l.us-east-2.rds.amazonaws.com
+  RedisEndpoint:
+    Type: String
+    Default: ecommerce-redis.kqanj8.ng.0001.use2.cache.amazonaws.com
+  WebDesiredCount:
+    Type: Number
+    Default: 2
+  WorkerDesiredCount:
+    Type: Number
+    Default: 1
+
+Resources:
+
+  # ---------- Cluster ----------
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${ProjectName}-cluster"
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-cluster"
+
+  # ---------- Log Groups ----------
+  WebLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/ecommerce-web
+      RetentionInDays: 7
+
+  WorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/ecommerce-worker
+      RetentionInDays: 7
+
+  # ---------- Task Definitions ----------
+  WebTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: ecommerce-web
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "512"
+      Memory: "1024"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${ProjectName}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${ProjectName}-WebTaskRoleArn"
+      ContainerDefinitions:
+        - Name: web
+          Image: !Ref WebImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+          Environment:
+            - Name: AWS_REGION
+              Value: us-east-2
+            - Name: SQS_QUEUE_URL
+              Value:
+                Fn::ImportValue: !Sub "${ProjectName}-OrdersQueueUrl"
+            - Name: REDIS_HOST
+              Value: !Ref RedisEndpoint
+            - Name: REDIS_PORT
+              Value: "6379"
+            - Name: DB_HOST
+              Value: !Ref DBEndpoint
+            - Name: DB_PORT
+              Value: "3306"
+            - Name: DB_NAME
+              Value: ecommerce
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref WebLogGroup
+              awslogs-region: us-east-2
+              awslogs-stream-prefix: web
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\" || exit 1"
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 30
+
+  WorkerTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: ecommerce-worker
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: "512"
+      Memory: "1024"
+      ExecutionRoleArn:
+        Fn::ImportValue: !Sub "${ProjectName}-TaskExecutionRoleArn"
+      TaskRoleArn:
+        Fn::ImportValue: !Sub "${ProjectName}-WorkerTaskRoleArn"
+      ContainerDefinitions:
+        - Name: worker
+          Image: !Ref WorkerImageUri
+          Essential: true
+          Environment:
+            - Name: AWS_REGION
+              Value: us-east-2
+            - Name: SQS_QUEUE_URL
+              Value:
+                Fn::ImportValue: !Sub "${ProjectName}-OrdersQueueUrl"
+            - Name: REDIS_HOST
+              Value: !Ref RedisEndpoint
+            - Name: REDIS_PORT
+              Value: "6379"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref WorkerLogGroup
+              awslogs-region: us-east-2
+              awslogs-stream-prefix: worker
+          StopTimeout: 30
+
+  # ---------- Services ----------
+  WebService:
+    Type: AWS::ECS::Service
+    DependsOn: WebAlbListenerRule
+    Properties:
+      ServiceName: !Sub "${ProjectName}-web-service"
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      DesiredCount: !Ref WebDesiredCount
+      TaskDefinition: !Ref WebTaskDefinition
+      PlatformVersion: LATEST
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${ProjectName}-PrivateSubnetA"
+            - Fn::ImportValue: !Sub "${ProjectName}-PrivateSubnetB"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${ProjectName}-EcsSecurityGroupId"
+      LoadBalancers:
+        - ContainerName: web
+          ContainerPort: 8080
+          TargetGroupArn:
+            Fn::ImportValue: !Sub "${ProjectName}-AlbTargetGroupArn"
+      HealthCheckGracePeriodSeconds: 60
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-web-service"
+
+  WorkerService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Sub "${ProjectName}-worker-service"
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      DesiredCount: !Ref WorkerDesiredCount
+      TaskDefinition: !Ref WorkerTaskDefinition
+      PlatformVersion: LATEST
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - Fn::ImportValue: !Sub "${ProjectName}-PrivateSubnetA"
+            - Fn::ImportValue: !Sub "${ProjectName}-PrivateSubnetB"
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${ProjectName}-EcsSecurityGroupId"
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-worker-service"
+
+  # ---------- ALB Listener Rule (send / and /order to web target group) ----------
+  WebAlbListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn:
+        Fn::ImportValue: !Sub "${ProjectName}-AlbListenerArn"
+      Priority: 1
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - "/*"
+      Actions:
+        - Type: forward
+          TargetGroupArn:
+            Fn::ImportValue: !Sub "${ProjectName}-AlbTargetGroupArn"
+
+  # ---------- Auto Scaling: Web (ALB request count per target) ----------
+  WebScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn: WebService
+    Properties:
+      ServiceNamespace: ecs
+      ScalableDimension: ecs:service:DesiredCount
+      ResourceId: !Sub "service/${Cluster}/${ProjectName}-web-service"
+      MinCapacity: 2
+      MaxCapacity: 6
+      RoleARN: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService"
+
+  WebScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${ProjectName}-web-requests-per-target"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref WebScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ALBRequestCountPerTarget
+          ResourceLabel: !Sub
+            - "app/${ProjectName}-alb/${AlbId}/targetgroup/${ProjectName}-web-tg/${TgId}"
+            - AlbId: baaafe2b768d4dc3
+              TgId: 1bd7ef9fe3514e97
+        TargetValue: 100
+        ScaleInCooldown: 120
+        ScaleOutCooldown: 60
+
+  # ---------- Auto Scaling: Worker (SQS queue depth) ----------
+  WorkerScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn: WorkerService
+    Properties:
+      ServiceNamespace: ecs
+      ScalableDimension: ecs:service:DesiredCount
+      ResourceId: !Sub "service/${Cluster}/${ProjectName}-worker-service"
+      MinCapacity: 1
+      MaxCapacity: 10
+      RoleARN: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService"
+
+  WorkerScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${ProjectName}-worker-sqs-depth"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref WorkerScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        CustomizedMetricSpecification:
+          MetricName: ApproximateNumberOfMessagesVisible
+          Namespace: AWS/SQS
+          Dimensions:
+            - Name: QueueName
+              Value:
+                Fn::ImportValue: !Sub "${ProjectName}-OrdersQueueName"
+          Statistic: Average
+        TargetValue: 30
+        ScaleInCooldown: 120
+        ScaleOutCooldown: 60
+
+Outputs:
+  ClusterName:
+    Value: !Ref Cluster
+    Export:
+      Name: !Sub "${ProjectName}-ClusterName"
+  ClusterArn:
+    Value: !GetAtt Cluster.Arn
+    Export:
+      Name: !Sub "${ProjectName}-ClusterArn"
+  WebServiceName:
+    Value: !GetAtt WebService.Name
+  WorkerServiceName:
+    Value: !GetAtt WorkerService.Name

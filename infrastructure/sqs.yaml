@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: SQS queue for order processing + dead-letter queue
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: ecommerce
+
+Resources:
+
+  OrdersDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${ProjectName}-orders-dlq"
+      MessageRetentionPeriod: 1209600
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-orders-dlq"
+
+  OrdersQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${ProjectName}-orders"
+      VisibilityTimeout: 60
+      MessageRetentionPeriod: 345600
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt OrdersDLQ.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-orders"
+
+Outputs:
+  QueueUrl:
+    Value: !Ref OrdersQueue
+    Export:
+      Name: !Sub "${ProjectName}-OrdersQueueUrl"
+  QueueArn:
+    Value: !GetAtt OrdersQueue.Arn
+    Export:
+      Name: !Sub "${ProjectName}-OrdersQueueArn"
+  QueueName:
+    Value: !GetAtt OrdersQueue.QueueName
+    Export:
+      Name: !Sub "${ProjectName}-OrdersQueueName"
+  DLQUrl:
+    Value: !Ref OrdersDLQ
+    Export:
+      Name: !Sub "${ProjectName}-OrdersDLQUrl"

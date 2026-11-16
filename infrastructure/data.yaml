@@ -1,0 +1,101 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: RDS MySQL Multi-AZ + ElastiCache Redis for the e-commerce platform
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: ecommerce
+  DBUsername:
+    Type: String
+    Default: appuser
+    NoEcho: true
+  DBPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    AllowedPattern: "[a-zA-Z0-9]*"
+    Description: RDS master password (alphanumeric only)
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+  CacheNodeType:
+    Type: String
+    Default: cache.t3.micro
+
+Resources:
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private subnets across 2 AZs
+      SubnetIds:
+        - Fn::ImportValue: !Sub "${ProjectName}-PrivateSubnetA"
+        - Fn::ImportValue: !Sub "${ProjectName}-PrivateSubnetB"
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-db-subnet-group"
+
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub "${ProjectName}-db"
+      Engine: mysql
+      EngineVersion: "8.0"
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: 20
+      StorageType: gp3
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - Fn::ImportValue: !Sub "${ProjectName}-DataSecurityGroupId"
+      MultiAZ: true
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 7
+      DeletionProtection: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-db"
+
+  CacheSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: Private subnets across 2 AZs
+      SubnetIds:
+        - Fn::ImportValue: !Sub "${ProjectName}-PrivateSubnetA"
+        - Fn::ImportValue: !Sub "${ProjectName}-PrivateSubnetB"
+
+  CacheReplicationGroup:
+    Type: AWS::ElastiCache::ReplicationGroup
+    Properties:
+      ReplicationGroupId: !Sub "${ProjectName}-redis"
+      ReplicationGroupDescription: Redis with automatic failover
+      Engine: redis
+      CacheNodeType: !Ref CacheNodeType
+      NumNodeGroups: 1
+      ReplicasPerNodeGroup: 1
+      AutomaticFailoverEnabled: true
+      MultiAZEnabled: true
+      CacheSubnetGroupName: !Ref CacheSubnetGroup
+      SecurityGroupIds:
+        - Fn::ImportValue: !Sub "${ProjectName}-DataSecurityGroupId"
+      AtRestEncryptionEnabled: true
+      TransitEncryptionEnabled: false
+
+Outputs:
+  DBEndpoint:
+    Value: !GetAtt DBInstance.Endpoint.Address
+    Export:
+      Name: !Sub "${ProjectName}-DBEndpoint"
+  DBPort:
+    Value: !GetAtt DBInstance.Endpoint.Port
+    Export:
+      Name: !Sub "${ProjectName}-DBPort"
+  RedisPrimaryEndpoint:
+    Value: !GetAtt CacheReplicationGroup.PrimaryEndPoint.Address
+    Export:
+      Name: !Sub "${ProjectName}-RedisEndpoint"
+  RedisPort:
+    Value: !GetAtt CacheReplicationGroup.PrimaryEndPoint.Port
+    Export:
+      Name: !Sub "${ProjectName}-RedisPort"

@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AWS Backup plan for RDS daily snapshots
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: ecommerce
+
+Resources:
+
+  BackupVault:
+    Type: AWS::Backup::BackupVault
+    Properties:
+      BackupVaultName: !Sub "${ProjectName}-vault"
+
+  BackupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${ProjectName}-backup-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: backup.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForRestores
+
+  BackupPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: !Sub "${ProjectName}-daily-plan"
+        BackupPlanRule:
+          - RuleName: DailyBackup
+            TargetBackupVault: !Ref BackupVault
+            ScheduleExpression: "cron(0 5 ? * * *)"
+            StartWindowMinutes: 60
+            CompletionWindowMinutes: 180
+            Lifecycle:
+              DeleteAfterDays: 7
+            RecoveryPointTags:
+              Project: !Ref ProjectName
+
+  BackupSelection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref BackupPlan
+      BackupSelection:
+        SelectionName: !Sub "${ProjectName}-rds-selection"
+        IamRoleArn: !GetAtt BackupRole.Arn
+        Resources:
+          - !Sub "arn:aws:rds:us-east-2:${AWS::AccountId}:db:ecommerce-db"
+
+Outputs:
+  BackupVaultName:
+    Value: !Ref BackupVault
+    Export:
+      Name: !Sub "${ProjectName}-BackupVaultName"
+  BackupPlanId:
+    Value: !Ref BackupPlan
+    Export:
+      Name: !Sub "${ProjectName}-BackupPlanId"

@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+*.pem
+.aws/
+.DS_Store
+.vscode/
+.idea/
+*.zip
+cdk.out/
+*.bak
+*.bak2
