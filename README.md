@@ -32,7 +32,7 @@ We flooded the SQS queue with a burst of orders. The CloudWatch alarm triggered 
 
 ### Failover Screenshots
 **Browser View (Graceful Degradation):**
-![DR Failover Browser](docs/screenshots/dr-failover.png)
+![DR Failover Browser](docs/screenshots/dr-failover-2.png)
 
 
 **AWS Backup Proof:**
