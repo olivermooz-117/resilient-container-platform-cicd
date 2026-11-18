@@ -17,7 +17,7 @@ Resources:
   FailoverBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "olivermooz-capstone-failover" # Must be globally unique
+      BucketName: !Ref DomainName # Must be globally unique
       WebsiteConfiguration:
         IndexDocument: index.html
       PublicAccessBlockConfiguration:
